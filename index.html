@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>預約日曆</title>
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/main.min.css" rel="stylesheet">
+  <style>
+    body { font-family: sans-serif; margin: 20px; }
+    #calendar { max-width: 900px; margin: auto; }
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      overflow: auto;
+      background-color: rgba(0, 0, 0, 0.4);
+    }
+    .modal-content {
+      background-color: #fff;
+      margin: 15% auto;
+      padding: 20px;
+      border: 1px solid #888;
+      width: 300px;
+      border-radius: 8px;
+    }
+    .close {
+      color: #aaa;
+      float: right;
+      font-size: 28px;
+      font-weight: bold;
+    }
+    .close:hover,
+    .close:focus {
+      color: black;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 8px;
+      margin: 8px 0;
+      box-sizing: border-box;
+    }
+    button {
+      padding: 8px 16px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+  </style>
+</head>
+<body>
+  <h2 style="text-align: center;">客人預約日曆</h2>
+  <div id="calendar"></div>
+
+  <div id="eventModal" class="modal">
+    <div class="modal-content">
+      <span class="close">&times;</span>
+      <p id="modalTitle"></p>
+      <p id="modalName"></p>
+      <p id="modalPhone"></p>
+      <p id="modalEmail"></p>
+      <label for="idNumber">身分證字號：</label>
+      <input type="text" id="idNumber" placeholder="請輸入身分證字號">
+      <button id="submitId">送出</button>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', async function () {
+      const calendarEl = document.getElementById('calendar');
+      const modal = document.getElementById('eventModal');
+      const span = document.getElementsByClassName('close')[0];
+      const modalTitle = document.getElementById('modalTitle');
+      const modalName = document.getElementById('modalName');
+      const modalPhone = document.getElementById('modalPhone');
+      const modalEmail = document.getElementById('modalEmail');
+      const idInput = document.getElementById('idNumber');
+      const submitBtn = document.getElementById('submitId');
+
+      let currentEvent = null;
+      let calendar;
+
+      span.onclick = function () {
+        modal.style.display = 'none';
+      };
+
+      window.onclick = function (event) {
+        if (event.target === modal) {
+          modal.style.display = 'none';
+        }
+      };
+
+      submitBtn.onclick = function () {
+        const idNumber = idInput.value.trim();
+        if (!idNumber) {
+          alert('請輸入身分證字號');
+          return;
+        }
+
+        const formData = new URLSearchParams();
+        formData.append('data', `${currentEvent.title},${currentEvent.extendedProps.name},${currentEvent.extendedProps.phone},${currentEvent.extendedProps.email},${idNumber}`);
+
+        fetch('https://script.google.com/macros/s/AKfycbyY0wDKrxam8v2WqX6FLiJczV3958y3WUPEFIkeHvfkpvH6W8qwssINI5e3YBWV7Z7J/exec', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body: formData
+        })
+        .then(response => response.text())
+        .then(result => {
+          alert('已送出資料！');
+          modal.style.display = 'none';
+          currentEvent.setProp('title', `✅ ${currentEvent.title}`);
+          currentEvent.setProp('color', '#4CAF50');
+        })
+        .catch(error => {
+          console.error('錯誤:', error);
+          alert('傳送失敗');
+        });
+      };
+
+      function fetchEventsFromWebhook() {
+        return Promise.resolve([
+          {
+            title: '塔羅占卜 - 小美',
+            start: '2025-04-25T14:00:00',
+            extendedProps: {
+              phone: '0912345678',
+              name: '小美',
+              email: 'xiaomei@example.com'
+            },
+            color: ''
+          },
+          {
+            title: '咖啡約會 - 阿明',
+            start: '2025-04-26T16:30:00',
+            extendedProps: {
+              phone: '0987654321',
+              name: '阿明',
+              email: 'aming@example.com'
+            },
+            color: ''
+          },
+          {
+            title: '手沖教學 - 芝芝',
+            start: '2025-04-28T10:30:00',
+            extendedProps: {
+              phone: '0922111222',
+              name: '芝芝',
+              email: 'zhizhi@example.com'
+            },
+            color: ''
+          }
+        ]);
+      }
+
+      const eventData = await fetchEventsFromWebhook();
+
+      calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'dayGridMonth',
+        locale: 'zh-tw',
+        headerToolbar: {
+          left: 'prev,next today',
+          center: 'title',
+          right: 'dayGridMonth,timeGridWeek'
+        },
+        events: eventData,
+        eventClick: function (info) {
+          info.jsEvent.preventDefault();
+          currentEvent = info.event;
+          const { phone, name, email } = info.event.extendedProps;
+          modalTitle.textContent = `預約項目：${info.event.title}`;
+          modalName.textContent = `客人姓名：${name}`;
+          modalPhone.textContent = `電話：${phone}`;
+          modalEmail.textContent = `Email：${email}`;
+          idInput.value = '';
+          modal.style.display = 'block';
+        }
+      });
+
+      calendar.render();
+    });
+  </script>
+</body>
+</html>
