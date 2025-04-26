@@ -3,63 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>預約日曆</title>
+  <title>客人預約日曆</title>
   <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/main.min.css" rel="stylesheet">
   <style>
     body { font-family: sans-serif; margin: 20px; }
     #calendar { max-width: 900px; margin: auto; }
-    .modal {
-      display: none;
-      position: fixed;
-      z-index: 1000;
-      left: 0;
-      top: 0;
-      width: 100%;
-      height: 100%;
-      overflow: auto;
-      background-color: rgba(0, 0, 0, 0.4);
-    }
-    .modal-content {
-      background-color: #fff;
-      margin: 15% auto;
-      padding: 20px;
-      border: 1px solid #888;
-      width: 300px;
-      border-radius: 8px;
-    }
-    .close {
-      color: #aaa;
-      float: right;
-      font-size: 28px;
-      font-weight: bold;
-    }
-    .close:hover,
-    .close:focus {
-      color: black;
-      text-decoration: none;
-      cursor: pointer;
-    }
-    input[type="text"] {
-      width: 100%;
-      padding: 8px;
-      margin: 8px 0;
-      box-sizing: border-box;
-    }
-    button {
-      padding: 8px 16px;
-      background-color: #4CAF50;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-    button:hover {
-      background-color: #45a049;
-    }
+    #refreshBtn { display: block; margin: 20px auto; padding: 8px 16px; background: #2196F3; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    #refreshBtn:hover { background: #1976D2; }
+    .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); }
+    .modal-content { background: #fff; margin: 15% auto; padding: 20px; width: 300px; border-radius: 8px; }
+    .close { float: right; font-size: 28px; cursor: pointer; }
+    #loading { display: none; position: fixed; z-index: 2000; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.7); justify-content: center; align-items: center; font-size: 24px; color: #333; }
   </style>
 </head>
 <body>
   <h2 style="text-align: center;">客人預約日曆</h2>
+  <button id="refreshBtn">立即重新整理</button>
   <div id="calendar"></div>
 
   <div id="eventModal" class="modal">
@@ -69,121 +28,144 @@
       <p id="modalName"></p>
       <p id="modalPhone"></p>
       <p id="modalEmail"></p>
-      <label for="idNumber">身分證字號：</label>
-      <input type="text" id="idNumber" placeholder="請輸入身分證字號">
+      <label for="idNumber">身分證字號：</label><br>
+      <input type="text" id="idNumber" placeholder="請輸入身分證字號"><br><br>
       <button id="submitId">送出</button>
     </div>
   </div>
 
+  <div id="loading">載入中...</div>
+
   <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
   <script>
-    document.addEventListener('DOMContentLoaded', async function () {
+    const WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbxcloKN6uq7sJ9-IrfMlecLdzDqrLSW-GXhVYl_m24i9nNv0t_oYsmwddelmsyLx8XkTg/exec';
+    const IDCARD_URL = 'https://script.google.com/macros/s/AKfycbzjPK4G4Kgj0X5lLRDeY2EixBAOFuw58uhMTc6G8WAZyHwOmXKUUo_qnpzBjPFLw-tu/exec';
+    const IDCARD_SUBMIT_URL = 'https://script.google.com/macros/s/AKfycbzjPK4G4Kgj0X5lLRDeY2EixBAOFuw58uhMTc6G8WAZyHwOmXKUUo_qnpzBjPFLw-tu/exec';
+
+    let calendar;
+
+    document.addEventListener('DOMContentLoaded', function() {
       const calendarEl = document.getElementById('calendar');
       const modal = document.getElementById('eventModal');
-      const span = document.getElementsByClassName('close')[0];
+      const span = document.querySelector('.close');
+      const refreshBtn = document.getElementById('refreshBtn');
       const modalTitle = document.getElementById('modalTitle');
       const modalName = document.getElementById('modalName');
       const modalPhone = document.getElementById('modalPhone');
       const modalEmail = document.getElementById('modalEmail');
       const idInput = document.getElementById('idNumber');
       const submitBtn = document.getElementById('submitId');
-
+      const loading = document.getElementById('loading');
       let currentEvent = null;
-      let calendar;
 
-      span.onclick = function () {
-        modal.style.display = 'none';
-      };
+      span.onclick = () => modal.style.display = 'none';
+      window.onclick = e => { if (e.target === modal) modal.style.display = 'none'; };
 
-      window.onclick = function (event) {
-        if (event.target === modal) {
-          modal.style.display = 'none';
+      function showLoading() { loading.style.display = 'flex'; }
+      function hideLoading() { loading.style.display = 'none'; }
+
+      async function loadEvents() {
+        try {
+          showLoading();
+          const [webhookRes, idRes] = await Promise.all([fetch(WEBHOOK_URL), fetch(IDCARD_URL)]);
+          const webhookData = await webhookRes.json();
+          const idData = await idRes.json();
+      
+          const idMap = new Map();
+          idData.forEach(item => {
+            let phone = (item['電話'] || '').toString().replace(/^'/, '');
+            idMap.set(phone + item['開始時間'], true);
+          });
+      
+          const events = [];
+      
+          webhookData.forEach(item => {
+            const product = item['商品名稱'] || '';
+            const name = item['姓名'] || '';
+            let phone = (item['電話'] || '').toString().replace(/^'/, '');
+            const email = item['Email'] || '';
+            const start = item['開始時間'] || '';
+            const end = item['結束時間'] || '';
+      
+            const baseTitle = `${product} - ${name}`;
+            const marked = idMap.has(phone + start);
+      
+            if (product.includes('夜間入場')) {
+              const startDate = new Date(start);
+              const endDate = new Date(end);
+              for (let d = new Date(startDate); d < endDate; d.setDate(d.getDate() + 1)) {
+                const day = d.toISOString().split('T')[0];
+                events.push({
+                  title: marked ? `✅ ${baseTitle}` : baseTitle,
+                  start: `${day}T17:00:00`,
+                  end: `${day}T23:59:00`,
+                  extendedProps: { phone, name, email },
+                  color: marked ? '#4CAF50' : ''
+                });
+              }
+            } else {
+              events.push({
+                title: marked ? `✅ ${baseTitle}` : baseTitle,
+                start,
+                end,
+                extendedProps: { phone, name, email },
+                color: marked ? '#4CAF50' : ''
+              });
+            }
+          });
+      
+          calendar.removeAllEvents();
+          calendar.addEventSource(events);
+        } catch (error) {
+          console.error('載入事件失敗:', error);
+          alert('載入事件失敗: ' + error);
+        } finally {
+          hideLoading();
         }
-      };
-
-      submitBtn.onclick = function () {
-        const idNumber = idInput.value.trim();
-        if (!idNumber) {
-          alert('請輸入身分證字號');
-          return;
-        }
-
-        const formData = new URLSearchParams();
-        formData.append('data', `${currentEvent.title},${currentEvent.extendedProps.name},${currentEvent.extendedProps.phone},${currentEvent.extendedProps.email},${idNumber}`);
-
-        fetch('https://script.google.com/macros/s/AKfycbyY0wDKrxam8v2WqX6FLiJczV3958y3WUPEFIkeHvfkpvH6W8qwssINI5e3YBWV7Z7J/exec', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded'
-          },
-          body: formData
-        })
-        .then(response => response.text())
-        .then(result => {
-          alert('已送出資料！');
-          modal.style.display = 'none';
-          currentEvent.setProp('title', `✅ ${currentEvent.title}`);
-          currentEvent.setProp('color', '#4CAF50');
-        })
-        .catch(error => {
-          console.error('錯誤:', error);
-          alert('傳送失敗');
-        });
-      };
-
-      function fetchEventsFromWebhook() {
-        return Promise.resolve([
-          {
-            title: '塔羅占卜 - 小美',
-            start: '2025-04-25T14:00:00',
-            extendedProps: {
-              phone: '0912345678',
-              name: '小美',
-              email: 'xiaomei@example.com'
-            },
-            color: ''
-          },
-          {
-            title: '咖啡約會 - 阿明',
-            start: '2025-04-26T16:30:00',
-            extendedProps: {
-              phone: '0987654321',
-              name: '阿明',
-              email: 'aming@example.com'
-            },
-            color: ''
-          },
-          {
-            title: '手沖教學 - 芝芝',
-            start: '2025-04-28T10:30:00',
-            extendedProps: {
-              phone: '0922111222',
-              name: '芝芝',
-              email: 'zhizhi@example.com'
-            },
-            color: ''
-          }
-        ]);
       }
 
-      const eventData = await fetchEventsFromWebhook();
+
+      submitBtn.onclick = async () => {
+        const idNumber = idInput.value.trim();
+        if (!idNumber) { alert('請輸入身分證字號'); return; }
+        if (!currentEvent) return;
+
+        showLoading();
+
+        try {
+          const formData = new URLSearchParams();
+          formData.append('data', `${currentEvent.title.replace('✅ ','')},${currentEvent.extendedProps.name},${currentEvent.extendedProps.phone.replace("'","")},${currentEvent.extendedProps.email},${currentEvent.startStr},${currentEvent.endStr},${idNumber}`);
+
+          await fetch(IDCARD_SUBMIT_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: formData
+          });
+
+          await loadEvents();
+          modal.style.display = 'none';
+        } catch (err) {
+          console.error('送出失敗', err);
+          alert('送出失敗');
+        } finally {
+          hideLoading();
+        }
+      };
+
+      refreshBtn.onclick = loadEvents;
 
       calendar = new FullCalendar.Calendar(calendarEl, {
         initialView: 'dayGridMonth',
         locale: 'zh-tw',
-        headerToolbar: {
-          left: 'prev,next today',
-          center: 'title',
-          right: 'dayGridMonth,timeGridWeek'
-        },
-        events: eventData,
-        eventClick: function (info) {
+        headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek' },
+        events: [],
+        eventClick: function(info) {
           info.jsEvent.preventDefault();
           currentEvent = info.event;
-          const { phone, name, email } = info.event.extendedProps;
-          modalTitle.textContent = `預約項目：${info.event.title}`;
+          const { name, phone, email } = currentEvent.extendedProps;
+          modalTitle.textContent = `預約項目：${currentEvent.title}`;
           modalName.textContent = `客人姓名：${name}`;
-          modalPhone.textContent = `電話：${phone}`;
+          modalPhone.textContent = `電話：${phone.replace("'","")}`;
           modalEmail.textContent = `Email：${email}`;
           idInput.value = '';
           modal.style.display = 'block';
@@ -191,6 +173,8 @@
       });
 
       calendar.render();
+      loadEvents();
+      setInterval(loadEvents, 30000); // 每30秒自動刷新一次
     });
   </script>
 </body>
