@@ -2,25 +2,139 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>客人預約日曆</title>
   <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/main.min.css" rel="stylesheet">
   <style>
-    body { font-family: sans-serif; margin: 20px; }
-    #calendar { max-width: 900px; margin: auto; }
-    #refreshBtn { display: block; margin: 20px auto; padding: 8px 16px; background: #2196F3; color: white; border: none; border-radius: 4px; cursor: pointer; }
-    #refreshBtn:hover { background: #1976D2; }
-    .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); }
-    .modal-content { background: #fff; margin: 15% auto; padding: 20px; width: 300px; border-radius: 8px; }
-    .close { float: right; font-size: 28px; cursor: pointer; }
-    #loading { display: none; position: fixed; z-index: 2000; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.7); justify-content: center; align-items: center; font-size: 24px; color: #333; }
+    body {
+      font-family: 'Noto Sans TC', sans-serif;
+      margin: 20px;
+      background-color: #f9f9f9;
+    }
+    h2 {
+      font-size: 28px;
+      margin-bottom: 20px;
+      font-weight: bold;
+      text-align: center;
+    }
+    #calendar {
+      max-width: 1000px;
+      margin: auto;
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    }
+    .fc-toolbar-title {
+      font-size: 24px;
+      font-weight: bold;
+    }
+    .fc-button {
+      background-color: #4CAF50;
+      border: none;
+      padding: 5px 10px;
+      border-radius: 6px;
+      color: white;
+      transition: background-color 0.3s;
+    }
+    .fc-button:hover {
+      background-color: #45a049;
+    }
+    .fc-event-title {
+      white-space: pre-line; /* 支援分行 */
+      font-size: 14px;
+      font-weight: bold;
+    }
+    .fc-event {
+      border: none;
+      border-radius: 8px;
+      padding: 4px;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .fc-daygrid-event {
+      margin: 2px 0;
+    }
+    #refreshBtn {
+      background-color: #2196F3;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      color: white;
+      font-size: 16px;
+      transition: background-color 0.3s;
+      margin-bottom: 20px;
+    }
+    #refreshBtn:hover {
+      background-color: #1976D2;
+    }
+    /* 已填身分證綠色背景 */
+    .fc-event[style*="background-color: rgb(76, 175, 80)"] {
+      background-color: #E8F5E9 !important;
+      color: #2E7D32 !important;
+    }
+    /* Modal */
+    .modal, .loading-overlay {
+      display: none;
+      position: fixed;
+      z-index: 1001;
+      top: 0; left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.5);
+    }
+    .modal-content {
+      background-color: #fff;
+      margin: 15% auto;
+      padding: 20px;
+      border: 1px solid #888;
+      width: 300px;
+      border-radius: 8px;
+      position: relative;
+    }
+    .loading-spinner {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      border: 10px solid #f3f3f3;
+      border-top: 10px solid #3498db;
+      border-radius: 50%;
+      width: 80px;
+      height: 80px;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: translate(-50%, -50%) rotate(0deg); }
+      100% { transform: translate(-50%, -50%) rotate(360deg); }
+    }
+    .close {
+      float: right;
+      font-size: 28px;
+      font-weight: bold;
+      color: #aaa;
+      cursor: pointer;
+    }
+    .close:hover { color: black; }
+    input[type="text"], button {
+      width: 100%;
+      padding: 8px;
+      margin: 8px 0;
+      box-sizing: border-box;
+    }
+    button {
+      border-radius: 4px;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
-  <h2 style="text-align: center;">客人預約日曆</h2>
-  <button id="refreshBtn">立即重新整理</button>
+  <h2>客人預約日曆</h2>
+  <div style="text-align: center;">
+    <button id="refreshBtn">立即重新整理</button>
+  </div>
   <div id="calendar"></div>
 
+  <!-- 身分證填寫 Modal -->
   <div id="eventModal" class="modal">
     <div class="modal-content">
       <span class="close">&times;</span>
@@ -28,153 +142,183 @@
       <p id="modalName"></p>
       <p id="modalPhone"></p>
       <p id="modalEmail"></p>
-      <label for="idNumber">身分證字號：</label><br>
-      <input type="text" id="idNumber" placeholder="請輸入身分證字號"><br><br>
+      <label for="idNumber">身分證字號：</label>
+      <input type="text" id="idNumber" placeholder="請輸入身分證字號">
       <button id="submitId">送出</button>
     </div>
   </div>
 
-  <div id="loading">載入中...</div>
+  <!-- Loading -->
+  <div id="loadingOverlay" class="loading-overlay">
+    <div class="loading-spinner"></div>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
   <script>
-    const WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbxcloKN6uq7sJ9-IrfMlecLdzDqrLSW-GXhVYl_m24i9nNv0t_oYsmwddelmsyLx8XkTg/exec';
-    const IDCARD_URL = 'https://script.google.com/macros/s/AKfycbzjPK4G4Kgj0X5lLRDeY2EixBAOFuw58uhMTc6G8WAZyHwOmXKUUo_qnpzBjPFLw-tu/exec';
-    const IDCARD_SUBMIT_URL = 'https://script.google.com/macros/s/AKfycbzjPK4G4Kgj0X5lLRDeY2EixBAOFuw58uhMTc6G8WAZyHwOmXKUUo_qnpzBjPFLw-tu/exec';
+    const webhookUrl = 'https://script.google.com/macros/s/AKfycbxcloKN6uq7sJ9-IrfMlecLdzDqrLSW-GXhVYl_m24i9nNv0t_oYsmwddelmsyLx8XkTg/exec';
+    const idSheetUrl = 'https://script.google.com/macros/s/AKfycbzjPK4G4Kgj0X5lLRDeY2EixBAOFuw58uhMTc6G8WAZyHwOmXKUUo_qnpzBjPFLw-tu/exec';
 
-    let calendar;
-
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', async function () {
       const calendarEl = document.getElementById('calendar');
       const modal = document.getElementById('eventModal');
       const span = document.querySelector('.close');
-      const refreshBtn = document.getElementById('refreshBtn');
       const modalTitle = document.getElementById('modalTitle');
       const modalName = document.getElementById('modalName');
       const modalPhone = document.getElementById('modalPhone');
       const modalEmail = document.getElementById('modalEmail');
       const idInput = document.getElementById('idNumber');
       const submitBtn = document.getElementById('submitId');
-      const loading = document.getElementById('loading');
+      const refreshBtn = document.getElementById('refreshBtn');
+      const loadingOverlay = document.getElementById('loadingOverlay');
+
       let currentEvent = null;
+      let calendar;
 
-      span.onclick = () => modal.style.display = 'none';
-      window.onclick = e => { if (e.target === modal) modal.style.display = 'none'; };
+      function showLoading() {
+        loadingOverlay.style.display = 'block';
+      }
+      function hideLoading() {
+        loadingOverlay.style.display = 'none';
+      }
 
-      function showLoading() { loading.style.display = 'flex'; }
-      function hideLoading() { loading.style.display = 'none'; }
+      async function fetchWebhookData() {
+        const res = await fetch(webhookUrl);
+        return await res.json();
+      }
+
+      async function fetchIdSheetData() {
+        const res = await fetch(idSheetUrl);
+        return await res.json();
+      }
 
       async function loadEvents() {
         try {
           showLoading();
-          const [webhookRes, idRes] = await Promise.all([fetch(WEBHOOK_URL), fetch(IDCARD_URL)]);
-          const webhookData = await webhookRes.json();
-          const idData = await idRes.json();
+          const [webhookData, idData] = await Promise.all([fetchWebhookData(), fetchIdSheetData()]);
       
           const idMap = new Map();
           idData.forEach(item => {
-            let phone = (item['電話'] || '').toString().replace(/^'/, '');
-            idMap.set(phone + item['開始時間'], true);
+            const key = `${item['商品名稱']}_${item['姓名']}_${item['開始時間'] || ''}`;
+            idMap.set(key, item['身分證字號'] ? true : false);
           });
       
-          const events = [];
+          const events = webhookData.map(item => {
+            const key = `${item['商品名稱']}_${item['姓名']}_${item['開始時間'] || ''}`;
+            const isChecked = idMap.get(key);
       
-          webhookData.forEach(item => {
-            const product = item['商品名稱'] || '';
-            const name = item['姓名'] || '';
-            let phone = (item['電話'] || '').toString().replace(/^'/, '');
-            const email = item['Email'] || '';
-            const start = item['開始時間'] || '';
-            const end = item['結束時間'] || '';
+            const quantity = item['數量'] ? item['數量'] : 1;
       
-            const baseTitle = `${product} - ${name}`;
-            const marked = idMap.has(phone + start);
-      
-            if (product.includes('夜間入場')) {
-              const startDate = new Date(start);
-              const endDate = new Date(end);
-              for (let d = new Date(startDate); d < endDate; d.setDate(d.getDate() + 1)) {
-                const day = d.toISOString().split('T')[0];
-                events.push({
-                  title: marked ? `✅ ${baseTitle}` : baseTitle,
-                  start: `${day}T17:00:00`,
-                  end: `${day}T23:59:00`,
-                  extendedProps: { phone, name, email },
-                  color: marked ? '#4CAF50' : ''
-                });
-              }
-            } else {
-              events.push({
-                title: marked ? `✅ ${baseTitle}` : baseTitle,
-                start,
-                end,
-                extendedProps: { phone, name, email },
-                color: marked ? '#4CAF50' : ''
-              });
+            // 判斷商品名稱內有沒有「夜間入場」
+            let displayTitle = item['商品名稱'];
+            if (displayTitle.includes('夜間入場')) {
+              displayTitle = '夜間入場';
             }
+      
+            const event = {
+              title: `${displayTitle}\n${item['姓名']} (訪客) x${quantity}`,
+              start: item['開始時間'],
+              allDay: true, // ★ 這行是重點：設定為純日期，不顯示時間
+              extendedProps: {
+                name: item['姓名'],
+                phone: item['電話'],
+                email: item['Email'],
+                rawTitle: item['商品名稱'],
+                startTime: item['開始時間'],
+                quantity: quantity
+              },
+              color: isChecked ? '#4CAF50' : ''
+            };
+      
+            // 如果有「結束時間」欄位就加進去
+            if (item['結束時間']) {
+              event.end = item['結束時間'];
+            }
+      
+            return event;
           });
       
           calendar.removeAllEvents();
           calendar.addEventSource(events);
+          hideLoading();
         } catch (error) {
           console.error('載入事件失敗:', error);
-          alert('載入事件失敗: ' + error);
-        } finally {
+          alert('載入事件失敗');
           hideLoading();
         }
       }
 
 
-      submitBtn.onclick = async () => {
-        const idNumber = idInput.value.trim();
-        if (!idNumber) { alert('請輸入身分證字號'); return; }
-        if (!currentEvent) return;
-
-        showLoading();
-
-        try {
-          const formData = new URLSearchParams();
-          formData.append('data', `${currentEvent.title.replace('✅ ','')},${currentEvent.extendedProps.name},${currentEvent.extendedProps.phone.replace("'","")},${currentEvent.extendedProps.email},${currentEvent.startStr},${currentEvent.endStr},${idNumber}`);
-
-          await fetch(IDCARD_SUBMIT_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: formData
-          });
-
-          await loadEvents();
-          modal.style.display = 'none';
-        } catch (err) {
-          console.error('送出失敗', err);
-          alert('送出失敗');
-        } finally {
-          hideLoading();
-        }
-      };
-
-      refreshBtn.onclick = loadEvents;
-
       calendar = new FullCalendar.Calendar(calendarEl, {
         initialView: 'dayGridMonth',
         locale: 'zh-tw',
-        headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek' },
+        headerToolbar: {
+          left: 'prev,next today',
+          center: 'title',
+          right: 'dayGridMonth,timeGridWeek'
+        },
         events: [],
-        eventClick: function(info) {
+        eventClick: function (info) {
           info.jsEvent.preventDefault();
           currentEvent = info.event;
-          const { name, phone, email } = currentEvent.extendedProps;
-          modalTitle.textContent = `預約項目：${currentEvent.title}`;
+          const { name, phone, email } = info.event.extendedProps;
+          modalTitle.textContent = `預約項目：${info.event.title}`;
           modalName.textContent = `客人姓名：${name}`;
-          modalPhone.textContent = `電話：${phone.replace("'","")}`;
+          modalPhone.textContent = `電話：${phone}`;
           modalEmail.textContent = `Email：${email}`;
           idInput.value = '';
           modal.style.display = 'block';
         }
       });
 
+      await loadEvents();
       calendar.render();
-      loadEvents();
-      setInterval(loadEvents, 30000); // 每30秒自動刷新一次
+
+      refreshBtn.onclick = async function () {
+        await loadEvents();
+      };
+
+      span.onclick = function () {
+        modal.style.display = 'none';
+      };
+      window.onclick = function (event) {
+        if (event.target === modal) {
+          modal.style.display = 'none';
+        }
+      };
+
+      submitBtn.onclick = async function () {
+        const idNumber = idInput.value.trim();
+        if (!idNumber) {
+          alert('請輸入身分證字號');
+          return;
+        }
+
+        try {
+          showLoading();
+          const phone = currentEvent.extendedProps.phone.startsWith('0') ? currentEvent.extendedProps.phone : ('0' + currentEvent.extendedProps.phone);
+          const formData = new URLSearchParams();
+          formData.append('data', `${currentEvent.extendedProps.rawTitle},${currentEvent.extendedProps.name},${phone},${currentEvent.extendedProps.email},${currentEvent.extendedProps.startTime},${currentEvent.extendedProps.startTime},${idNumber}`);
+
+          const response = await fetch(idSheetUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: formData
+          });
+
+          if (response.ok) {
+            alert('已成功送出身分證資料！');
+            modal.style.display = 'none';
+            await loadEvents();
+          } else {
+            alert('送出失敗，請稍後再試');
+          }
+        } catch (error) {
+          console.error('送出身分證錯誤:', error);
+          alert('送出失敗，請稍後再試');
+        } finally {
+          hideLoading();
+        }
+      };
     });
   </script>
 </body>
