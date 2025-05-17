@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
-  <title>客人預約日曆</title>
+  <title>客人預約日曆與床位清單</title>
   <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/main.min.css" rel="stylesheet">
   <style>
     body {
@@ -16,7 +16,7 @@
       font-weight: bold;
       text-align: center;
     }
-    #calendar {
+    #calendar, #bedListView {
       max-width: 1000px;
       margin: auto;
       background: white;
@@ -40,7 +40,7 @@
       background-color: #45a049;
     }
     .fc-event-title {
-      white-space: pre-line; /* 支援分行 */
+      white-space: pre-line;
       font-size: 14px;
       font-weight: bold;
     }
@@ -54,7 +54,7 @@
     .fc-daygrid-event {
       margin: 2px 0;
     }
-    #refreshBtn {
+    #refreshBtn, #toggleViewBtn {
       background-color: #2196F3;
       border: none;
       padding: 10px 20px;
@@ -62,17 +62,15 @@
       color: white;
       font-size: 16px;
       transition: background-color 0.3s;
-      margin-bottom: 20px;
+      margin: 10px 5px;
     }
-    #refreshBtn:hover {
+    #refreshBtn:hover, #toggleViewBtn:hover {
       background-color: #1976D2;
     }
-    /* 已填身分證綠色背景 */
     .fc-event[style*="background-color: rgb(76, 175, 80)"] {
       background-color: #E8F5E9 !important;
       color: #2E7D32 !important;
     }
-    /* Modal */
     .modal, .loading-overlay {
       display: none;
       position: fixed;
@@ -125,16 +123,50 @@
       border-radius: 4px;
       cursor: pointer;
     }
+
+    #bedTable {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    #bedTable th, #bedTable td {
+      padding: 10px;
+      border: 1px solid #ccc;
+      text-align: left;
+    }
+    #bedTable th {
+      background-color: #4CAF50;
+      color: white;
+    }
   </style>
 </head>
 <body>
   <h2>客人預約日曆</h2>
   <div style="text-align: center;">
     <button id="refreshBtn">立即重新整理</button>
+    <button id="toggleViewBtn">切換至床位清單</button>
   </div>
+
+  <!-- 日曆區塊 -->
   <div id="calendar"></div>
 
-  <!-- 身分證填寫 Modal -->
+  <!-- 床位清單區塊 -->
+  <div id="bedListView" style="display: none;">
+    <h2>今日床位分配</h2>
+    <table id="bedTable">
+      <thead>
+        <tr>
+          <th>姓名</th>
+          <th>電話</th>
+          <th>房號</th>
+          <th>房型</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <!-- Modal 與 Loading -->
   <div id="eventModal" class="modal">
     <div class="modal-content">
       <span class="close">&times;</span>
@@ -147,8 +179,6 @@
       <button id="submitId">送出</button>
     </div>
   </div>
-
-  <!-- Loading -->
   <div id="loadingOverlay" class="loading-overlay">
     <div class="loading-spinner"></div>
   </div>
@@ -160,6 +190,9 @@
 
     document.addEventListener('DOMContentLoaded', async function () {
       const calendarEl = document.getElementById('calendar');
+      const bedListView = document.getElementById('bedListView');
+      const toggleViewBtn = document.getElementById('toggleViewBtn');
+      const bedTableBody = document.querySelector('#bedTable tbody');
       const modal = document.getElementById('eventModal');
       const span = document.querySelector('.close');
       const modalTitle = document.getElementById('modalTitle');
@@ -195,29 +228,26 @@
         try {
           showLoading();
           const [webhookData, idData] = await Promise.all([fetchWebhookData(), fetchIdSheetData()]);
-      
+
           const idMap = new Map();
           idData.forEach(item => {
             const key = `${item['商品名稱']}_${item['姓名']}_${item['開始時間'] || ''}`;
             idMap.set(key, item['身分證字號'] ? true : false);
           });
-      
+
           const events = webhookData.map(item => {
             const key = `${item['商品名稱']}_${item['姓名']}_${item['開始時間'] || ''}`;
             const isChecked = idMap.get(key);
-      
             const quantity = item['數量'] ? item['數量'] : 1;
-      
-            // 判斷商品名稱內有沒有「夜間入場」
             let displayTitle = item['商品名稱'];
             if (displayTitle.includes('夜間入場')) {
               displayTitle = '夜間入場';
             }
-      
+
             const event = {
               title: `${displayTitle}\n${item['姓名']} (訪客) x${quantity}`,
               start: item['開始時間'],
-              allDay: true, // ★ 這行是重點：設定為純日期，不顯示時間
+              allDay: true,
               extendedProps: {
                 name: item['姓名'],
                 phone: item['電話'],
@@ -228,25 +258,48 @@
               },
               color: isChecked ? '#4CAF50' : ''
             };
-      
-            // 如果有「結束時間」欄位就加進去
+
             if (item['結束時間']) {
               event.end = item['結束時間'];
             }
-      
+
             return event;
           });
-      
+
           calendar.removeAllEvents();
           calendar.addEventSource(events);
-          hideLoading();
         } catch (error) {
           console.error('載入事件失敗:', error);
           alert('載入事件失敗');
+        } finally {
           hideLoading();
         }
       }
 
+      function loadTodayBeds() {
+        const today = new Date().toISOString().split('T')[0];
+        bedTableBody.innerHTML = '';
+        fetchIdSheetData().then(data => {
+          const todayData = data.filter(entry => (entry['開始時間'] || '').startsWith(today));
+          if (todayData.length === 0) {
+            bedTableBody.innerHTML = '<tr><td colspan="4">今日尚無床位分配資料</td></tr>';
+            return;
+          }
+          todayData.forEach(entry => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td>${entry['姓名'] || ''}</td>
+              <td>${entry['電話'] || ''}</td>
+              <td>${entry['房號'] || '未分配'}</td>
+              <td>${entry['商品名稱'] || ''}</td>
+            `;
+            bedTableBody.appendChild(tr);
+          });
+        }).catch(err => {
+          console.error('讀取床位資料錯誤', err);
+          bedTableBody.innerHTML = '<tr><td colspan="4">資料讀取失敗</td></tr>';
+        });
+      }
 
       calendar = new FullCalendar.Calendar(calendarEl, {
         initialView: 'dayGridMonth',
@@ -273,18 +326,9 @@
       await loadEvents();
       calendar.render();
 
-      refreshBtn.onclick = async function () {
-        await loadEvents();
-      };
-
-      span.onclick = function () {
-        modal.style.display = 'none';
-      };
-      window.onclick = function (event) {
-        if (event.target === modal) {
-          modal.style.display = 'none';
-        }
-      };
+      refreshBtn.onclick = loadEvents;
+      span.onclick = () => modal.style.display = 'none';
+      window.onclick = e => { if (e.target === modal) modal.style.display = 'none'; };
 
       submitBtn.onclick = async function () {
         const idNumber = idInput.value.trim();
@@ -292,19 +336,16 @@
           alert('請輸入身分證字號');
           return;
         }
-
         try {
           showLoading();
           const phone = currentEvent.extendedProps.phone.startsWith('0') ? currentEvent.extendedProps.phone : ('0' + currentEvent.extendedProps.phone);
           const formData = new URLSearchParams();
           formData.append('data', `${currentEvent.extendedProps.rawTitle},${currentEvent.extendedProps.name},${phone},${currentEvent.extendedProps.email},${currentEvent.extendedProps.startTime},${currentEvent.extendedProps.startTime},${idNumber}`);
-
           const response = await fetch(idSheetUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: formData
           });
-
           if (response.ok) {
             alert('已成功送出身分證資料！');
             modal.style.display = 'none';
@@ -317,6 +358,19 @@
           alert('送出失敗，請稍後再試');
         } finally {
           hideLoading();
+        }
+      };
+
+      toggleViewBtn.onclick = function () {
+        if (calendarEl.style.display === 'none') {
+          calendarEl.style.display = 'block';
+          bedListView.style.display = 'none';
+          toggleViewBtn.textContent = '切換至床位清單';
+        } else {
+          calendarEl.style.display = 'none';
+          bedListView.style.display = 'block';
+          toggleViewBtn.textContent = '切換至日曆';
+          loadTodayBeds();
         }
       };
     });
